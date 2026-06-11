@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sw-tpm-file-encryption"
+version = "0.1.0"
+description = "Course demo: encrypt files in Python and protect AES keys with SW-TPM policies."
+requires-python = ">=3.10"
+dependencies = [
+  "cryptography>=42.0.0",
+  "tpm2-pytss>=2.3.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -1,0 +1,4 @@
+This is a sample file for the Embedded System Security project.
+
+The file content is encrypted with AES-GCM.
+The AES key is sealed and protected by a software TPM policy.
