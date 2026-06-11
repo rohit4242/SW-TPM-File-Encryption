@@ -95,6 +95,9 @@ class TpmKeyStore:
                         str(sealed_context),
                     ]
                 )
+                # SW-TPM holds only 3 transient objects; free the slots taken by
+                # createprimary/load so unseal can context-load sealed.ctx again.
+                self._flush_transient_contexts()
                 if pcrs:
                     self._unseal_with_pcr_policy(temp_dir, sealed_context, pcrs, unsealed_output)
                 else:
