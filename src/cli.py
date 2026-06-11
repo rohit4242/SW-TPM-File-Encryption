@@ -6,7 +6,7 @@ from .crypto import ALGORITHM_NAME, decrypt_bytes, encrypt_bytes, generate_aes_k
 from .errors import AppError
 from .metadata import EncryptionMetadata, load_metadata, save_metadata
 from .policies import PolicyName, parse_pcrs, validate_policy_inputs
-from .tpm import DEFAULT_TCTI, TpmKeyStore
+from .tpm import DEFAULT_TCTI, TpmKeyStore, blob_paths
 
 OUTPUT_DIR = Path("outputs")
 
@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     decrypt = subcommands.add_parser("decrypt", help="Decrypt a file after unsealing its AES key.")
     decrypt.add_argument("encrypted_file", type=Path)
     decrypt.add_argument("--auth", help="Auth value required by the password policy.")
-    decrypt.add_argument("--pcrs", help="Comma-separated PCR indexes for PCR policy, for example: 7 or 7,16.")
+    decrypt.add_argument("--pcrs", help="Optional PCR indexes. Must match the metadata for PCR policy.")
     decrypt.add_argument("--output", type=Path, help="Plaintext output path. Defaults to outputs/INPUT.dec.")
 
     extend_pcr = subcommands.add_parser("extend-pcr", help="Extend one TPM PCR for the PCR policy demo.")
@@ -49,8 +49,6 @@ def run(argv: list[str] | None = None) -> int:
             decrypt_file(args)
         elif args.command == "extend-pcr":
             extend_pcr(args)
-        else:
-            raise AppError(f"Unknown command: {args.command}")
     except AppError as exc:
         parser.exit(status=1, message=f"Error: {exc}\n")
     return 0
@@ -72,8 +70,7 @@ def encrypt_file(args: argparse.Namespace) -> None:
     encrypted = encrypt_bytes(plaintext, aes_key)
 
     tpm_store = TpmKeyStore(tcti=args.tcti)
-    sealed_key = tpm_store.seal_key(aes_key, args.auth, output_file)
-    pcr_values = tpm_store.read_pcrs(selected_pcrs) if selected_pcrs else None
+    tpm_store.seal_key(aes_key, output_file, auth=args.auth, pcrs=selected_pcrs)
 
     output_file.write_bytes(encrypted.ciphertext)
     metadata = EncryptionMetadata(
@@ -81,17 +78,14 @@ def encrypt_file(args: argparse.Namespace) -> None:
         algorithm=ALGORITHM_NAME,
         nonce_b64=base64.b64encode(encrypted.nonce).decode("ascii"),
         policy=policy.value,
-        tpm_key_path=sealed_key.fapi_path,
-        tpm_public_blob=sealed_key.public_blob_path.name,
-        tpm_private_blob=sealed_key.private_blob_path.name,
         pcrs=selected_pcrs,
-        pcr_values=pcr_values,
     )
     save_metadata(metadata_file, metadata)
 
-    print(f"Encrypted: {input_file} -> {output_file}")
-    print(f"Metadata:  {metadata_file}")
-    print(f"TPM key:   {sealed_key.fapi_path}")
+    public_blob, private_blob = blob_paths(output_file)
+    print(f"Encrypted:  {input_file} -> {output_file}")
+    print(f"Metadata:   {metadata_file}")
+    print(f"Sealed key: {public_blob} + {private_blob}")
 
 
 def decrypt_file(args: argparse.Namespace) -> None:
@@ -103,16 +97,19 @@ def decrypt_file(args: argparse.Namespace) -> None:
         raise AppError(f"Metadata file does not exist: {metadata_file}")
 
     metadata = load_metadata(metadata_file)
-    validate_policy_inputs(metadata.policy, args.auth, args.pcrs)
-    if not metadata.tpm_key_path:
-        raise AppError("Metadata does not contain a TPM FAPI key path.")
-
     tpm_store = TpmKeyStore(tcti=args.tcti)
-    if metadata.policy == PolicyName.PCR.value:
-        requested_pcrs = parse_pcrs(args.pcrs)
-        _verify_pcr_state(tpm_store, requested_pcrs, metadata)
 
-    aes_key = tpm_store.unseal_key(metadata.tpm_key_path, args.auth)
+    if metadata.policy == PolicyName.PCR.value:
+        if not metadata.pcrs:
+            raise AppError("Metadata does not contain a PCR selection for the PCR policy.")
+        if args.pcrs and parse_pcrs(args.pcrs) != metadata.pcrs:
+            raise AppError(f"PCR selection mismatch. Metadata requires {metadata.pcrs}.")
+        aes_key = tpm_store.unseal_key(encrypted_file, pcrs=metadata.pcrs)
+    else:
+        if not args.auth:
+            raise AppError("Password policy requires --auth.")
+        aes_key = tpm_store.unseal_key(encrypted_file, auth=args.auth)
+
     nonce = base64.b64decode(metadata.nonce_b64)
     plaintext = decrypt_bytes(encrypted_file.read_bytes(), aes_key, nonce)
 
@@ -132,12 +129,10 @@ def extend_pcr(args: argparse.Namespace) -> None:
 
 
 def default_encrypt_output(input_file: Path) -> Path:
-    """Return the default encrypted output path under outputs/."""
     return OUTPUT_DIR / f"{input_file.name}.enc"
 
 
 def default_decrypt_output(encrypted_file: Path) -> Path:
-    """Return the default decrypted output path under outputs/."""
     name = encrypted_file.name
     if name.endswith(".enc"):
         return OUTPUT_DIR / f"{name[:-4]}.dec"
@@ -145,16 +140,4 @@ def default_decrypt_output(encrypted_file: Path) -> Path:
 
 
 def build_metadata_path(encrypted_file: Path) -> Path:
-    """Return the companion metadata path for an encrypted payload."""
     return encrypted_file.with_name(encrypted_file.name + ".json")
-
-
-def _verify_pcr_state(tpm_store: TpmKeyStore, requested_pcrs: list[int], metadata: EncryptionMetadata) -> None:
-    if metadata.pcrs != requested_pcrs:
-        raise AppError(f"PCR selection mismatch. Metadata requires {metadata.pcrs}, got {requested_pcrs}.")
-    if not metadata.pcr_values:
-        raise AppError("Metadata does not contain PCR values for PCR policy.")
-
-    current_values = tpm_store.read_pcrs(requested_pcrs)
-    if current_values != metadata.pcr_values:
-        raise AppError("PCR policy check failed. Current PCR values do not match encryption-time values.")

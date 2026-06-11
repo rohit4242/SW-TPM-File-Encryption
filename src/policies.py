@@ -36,9 +36,3 @@ def parse_pcrs(pcrs: str) -> list[int]:
         if value < 0 or value > 23:
             raise AppError("PCR indexes must be between 0 and 23.")
     return values
-
-
-def auth_callback(_path: str, _description: str, user_data: str | None = None) -> str:
-    if not user_data:
-        raise AppError("TPM requested an auth value, but no auth value was provided.")
-    return user_data

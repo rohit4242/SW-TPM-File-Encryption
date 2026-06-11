@@ -1,6 +1,7 @@
 import unittest
 
 from src.crypto import decrypt_bytes, encrypt_bytes, generate_aes_key
+from src.errors import AppError
 
 
 class CryptoTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class CryptoTests(unittest.TestCase):
         encrypted = encrypt_bytes(b"do not modify me", key)
         modified = encrypted.ciphertext[:-1] + bytes([encrypted.ciphertext[-1] ^ 1])
 
-        with self.assertRaisesRegex(ValueError, "authentication failed"):
+        with self.assertRaisesRegex(AppError, "authentication failed"):
             decrypt_bytes(modified, key, encrypted.nonce)
 
 

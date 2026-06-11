@@ -20,13 +20,9 @@ sudo apt install -y \
   tpm2-tools \
   libtss2-dev
 
-install_if_available tpm2-abrmd
 install_if_available python3-cryptography
 install_if_available python3-pytest
-install_if_available libtss2-fapi-dev
 install_if_available libtss2-tctildr-dev
-install_if_available libtss2-fapi1
-install_if_available libtss2-fapi1t64
 install_if_available libtss2-tctildr0
 install_if_available libtss2-tctildr0t64
 install_if_available libtss2-tcti-swtpm0
