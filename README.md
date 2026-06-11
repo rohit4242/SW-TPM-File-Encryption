@@ -44,6 +44,7 @@ Target platform:
 
 - Ubuntu Linux
 - Ubuntu on WSL2
+- Kali Linux rolling
 
 System packages:
 
@@ -66,6 +67,8 @@ From inside this project folder:
 bash scripts/install_ubuntu_dependencies.sh
 source .venv/bin/activate
 ```
+
+The install script also supports Kali Linux. Kali does not currently provide separate `libtss2-fapi-dev` and `libtss2-tctildr-dev` packages, so the script installs `libtss2-dev` and then installs distro-specific optional TPM runtime packages only when they are available.
 
 Start SW-TPM:
 
@@ -222,7 +225,8 @@ python -m pip install -r requirements.txt
 Install TPM development libraries first:
 
 ```bash
-sudo apt install -y libtss2-dev libtss2-fapi-dev libtss2-tctildr-dev
+bash scripts/install_ubuntu_dependencies.sh
+source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 

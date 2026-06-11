@@ -10,3 +10,5 @@ export TPM2TOOLS_TCTI=swtpm:host=127.0.0.1,port=2321
 export TSS2_FAPICONF="$PWD/.tpm-state/fapi-config.json"
 bash scripts/setup_tpm.sh
 ```
+
+On Kali Linux, the installer skips Ubuntu-only TPM development package names such as `libtss2-fapi-dev` and uses Kali's available `libtss2-dev` package plus optional runtime packages.
