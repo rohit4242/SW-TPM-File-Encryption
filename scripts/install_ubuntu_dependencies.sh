@@ -21,6 +21,9 @@ sudo apt install -y \
   libtss2-dev
 
 install_if_available tpm2-abrmd
+install_if_available python3-cryptography
+install_if_available python3-pytest
+install_if_available python3-tpm2-pytss
 install_if_available libtss2-fapi-dev
 install_if_available libtss2-tctildr-dev
 install_if_available libtss2-fapi1
@@ -30,10 +33,17 @@ install_if_available libtss2-tctildr0t64
 install_if_available libtss2-tcti-swtpm0
 install_if_available libtss2-tcti-swtpm0t64
 
-python3 -m venv .venv
+python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install "cryptography>=42.0.0" "pytest>=8.0.0"
+
+if python -c "import tpm2_pytss" >/dev/null 2>&1; then
+  echo "tpm2-pytss is available."
+else
+  echo "System tpm2-pytss package was not available; trying pip fallback."
+  python -m pip install "tpm2-pytss>=2.3.0"
+fi
 
 echo "Ubuntu dependencies installed."
 echo "Activate the virtual environment with: source .venv/bin/activate"

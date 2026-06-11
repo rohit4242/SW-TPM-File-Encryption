@@ -70,6 +70,8 @@ source .venv/bin/activate
 
 The install script also supports Kali Linux. Kali does not currently provide separate `libtss2-fapi-dev` and `libtss2-tctildr-dev` packages, so the script installs `libtss2-dev` and then installs distro-specific optional TPM runtime packages only when they are available.
 
+On Kali, `pip install tpm2-pytss` may fail because Kali rolling often uses newer Python/TSS headers than the PyPI source build expects. The script therefore tries to install Kali's `python3-tpm2-pytss` package first and creates the virtual environment with `--system-site-packages` so the venv can use that distro package.
+
 Start SW-TPM:
 
 ```bash
@@ -227,7 +229,16 @@ Install TPM development libraries first:
 ```bash
 bash scripts/install_ubuntu_dependencies.sh
 source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -c "import tpm2_pytss; print('tpm2-pytss import OK')"
+```
+
+On Kali, prefer the distro package if available:
+
+```bash
+sudo apt install -y python3-tpm2-pytss
+python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+python -c "import tpm2_pytss; print('tpm2-pytss import OK')"
 ```
 
 ### Wrong auth value
