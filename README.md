@@ -225,6 +225,16 @@ If you see an error such as `Missing command 'tpm2_createprimary'`, install the 
 bash scripts/install_ubuntu_dependencies.sh
 ```
 
+### `out of memory for object contexts`
+
+This means the TPM has too many transient objects loaded. Clear them:
+
+```bash
+tpm2_flushcontext -t
+```
+
+The Python TPM backend also flushes transient contexts before and after seal/unseal operations to avoid this during normal demos.
+
 ### Wrong auth value
 
 For password policy, wrong `--auth` should fail. This demonstrates that SW-TPM refuses to unseal the protected AES key.

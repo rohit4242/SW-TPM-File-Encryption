@@ -30,29 +30,33 @@ class TpmKeyStore:
         public_blob_path = output_prefix.with_suffix(output_prefix.suffix + ".pub")
         private_blob_path = output_prefix.with_suffix(output_prefix.suffix + ".priv")
 
+        self._flush_transient_contexts(ignore_errors=True)
         with tempfile.TemporaryDirectory() as directory:
-            temp_dir = Path(directory)
-            primary_context = temp_dir / "primary.ctx"
-            key_input = temp_dir / "aes.key"
-            key_input.write_bytes(key)
+            try:
+                temp_dir = Path(directory)
+                primary_context = temp_dir / "primary.ctx"
+                key_input = temp_dir / "aes.key"
+                key_input.write_bytes(key)
 
-            self._run(["tpm2_createprimary", "-Q", "-C", "o", "-G", "rsa", "-c", str(primary_context)])
-            self._run(
-                [
-                    "tpm2_create",
-                    "-Q",
-                    "-C",
-                    str(primary_context),
-                    "-u",
-                    str(public_blob_path),
-                    "-r",
-                    str(private_blob_path),
-                    "-i",
-                    str(key_input),
-                    "-p",
-                    auth,
-                ]
-            )
+                self._run(["tpm2_createprimary", "-Q", "-C", "o", "-G", "rsa", "-c", str(primary_context)])
+                self._run(
+                    [
+                        "tpm2_create",
+                        "-Q",
+                        "-C",
+                        str(primary_context),
+                        "-u",
+                        str(public_blob_path),
+                        "-r",
+                        str(private_blob_path),
+                        "-i",
+                        str(key_input),
+                        "-p",
+                        auth,
+                    ]
+                )
+            finally:
+                self._flush_transient_contexts(ignore_errors=True)
 
         return SealedKeyInfo(
             fapi_path=fapi_path,
@@ -65,29 +69,33 @@ class TpmKeyStore:
         if not public_blob_path.is_file() or not private_blob_path.is_file():
             raise TpmError("TPM sealed object blobs are missing beside the encrypted file.")
 
+        self._flush_transient_contexts(ignore_errors=True)
         with tempfile.TemporaryDirectory() as directory:
-            temp_dir = Path(directory)
-            primary_context = temp_dir / "primary.ctx"
-            sealed_context = temp_dir / "sealed.ctx"
-            unsealed_output = temp_dir / "aes.key"
+            try:
+                temp_dir = Path(directory)
+                primary_context = temp_dir / "primary.ctx"
+                sealed_context = temp_dir / "sealed.ctx"
+                unsealed_output = temp_dir / "aes.key"
 
-            self._run(["tpm2_createprimary", "-Q", "-C", "o", "-G", "rsa", "-c", str(primary_context)])
-            self._run(
-                [
-                    "tpm2_load",
-                    "-Q",
-                    "-C",
-                    str(primary_context),
-                    "-u",
-                    str(public_blob_path),
-                    "-r",
-                    str(private_blob_path),
-                    "-c",
-                    str(sealed_context),
-                ]
-            )
-            self._run(["tpm2_unseal", "-Q", "-c", str(sealed_context), "-p", auth, "-o", str(unsealed_output)])
-            return unsealed_output.read_bytes()
+                self._run(["tpm2_createprimary", "-Q", "-C", "o", "-G", "rsa", "-c", str(primary_context)])
+                self._run(
+                    [
+                        "tpm2_load",
+                        "-Q",
+                        "-C",
+                        str(primary_context),
+                        "-u",
+                        str(public_blob_path),
+                        "-r",
+                        str(private_blob_path),
+                        "-c",
+                        str(sealed_context),
+                    ]
+                )
+                self._run(["tpm2_unseal", "-Q", "-c", str(sealed_context), "-p", auth, "-o", str(unsealed_output)])
+                return unsealed_output.read_bytes()
+            finally:
+                self._flush_transient_contexts(ignore_errors=True)
 
     def read_pcrs(self, pcrs: list[int]) -> dict[str, str]:
         """Read selected TPM PCR values as lowercase hexadecimal strings."""
@@ -133,3 +141,10 @@ class TpmKeyStore:
             if "authorization" in details.lower() or "auth" in details.lower():
                 raise TpmError("TPM authorization failed. Check the --auth value.") from exc
             raise TpmError(f"TPM command failed: {' '.join(command)}\n{details}") from exc
+
+    def _flush_transient_contexts(self, ignore_errors: bool = False) -> None:
+        try:
+            self._run(["tpm2_flushcontext", "-t"])
+        except TpmError:
+            if not ignore_errors:
+                raise
