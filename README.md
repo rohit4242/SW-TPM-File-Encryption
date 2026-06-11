@@ -4,13 +4,13 @@ Course project for Embedded System Security:
 
 **Encryption of files using different SW-TPM policies with Python.**
 
-The project encrypts files with AES-256-GCM in Python and protects the AES file key with a software TPM. The code is intentionally small and demo-friendly so the flow is easy to explain during evaluation.
+The project encrypts files with AES-256-GCM in Python and protects the AES file key with a software TPM through `tpm2-tools`. The code is intentionally small and demo-friendly so the flow is easy to explain during evaluation.
 
 ## Architecture
 
 1. Python generates a random 256-bit AES key.
 2. Python encrypts the file with AES-GCM.
-3. SW-TPM seals the AES key as a TPM object.
+3. `tpm2-tools` asks SW-TPM to seal the AES key as a TPM object.
 4. Decryption unseals the AES key only after the selected policy check succeeds.
 5. Python decrypts the file with the unsealed AES key.
 
@@ -56,7 +56,6 @@ System packages:
 Python packages:
 
 - `cryptography`
-- `tpm2-pytss`
 - `pytest`
 
 ## Setup on Ubuntu or WSL2
@@ -70,14 +69,11 @@ source .venv/bin/activate
 
 The install script also supports Kali Linux. Kali does not currently provide separate `libtss2-fapi-dev` and `libtss2-tctildr-dev` packages, so the script installs `libtss2-dev` and then installs distro-specific optional TPM runtime packages only when they are available.
 
-On Kali, `pip install tpm2-pytss` may fail because Kali rolling often uses newer Python/TSS headers than the PyPI source build expects. The script therefore tries to install Kali's `python3-tpm2-pytss` package first and creates the virtual environment with `--system-site-packages` so the venv can use that distro package.
-
 Start SW-TPM:
 
 ```bash
 bash scripts/start_swtpm.sh
 export TPM2TOOLS_TCTI=swtpm:host=127.0.0.1,port=2321
-export TSS2_FAPICONF="$PWD/.tpm-state/fapi-config.json"
 ```
 
 Check TPM connectivity:
@@ -180,7 +176,7 @@ The metadata stores:
 - algorithm name
 - AES-GCM nonce
 - selected policy
-- TPM FAPI key path
+- TPM key path
 - TPM public/private blob filenames
 - PCR selection and PCR values for PCR policy
 
@@ -209,7 +205,6 @@ Run:
 ```bash
 bash scripts/start_swtpm.sh
 export TPM2TOOLS_TCTI=swtpm:host=127.0.0.1,port=2321
-export TSS2_FAPICONF="$PWD/.tpm-state/fapi-config.json"
 bash scripts/setup_tpm.sh
 ```
 
@@ -222,23 +217,12 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-### `Missing Python package 'tpm2-pytss'`
+### Missing TPM command
 
-Install TPM development libraries first:
+If you see an error such as `Missing command 'tpm2_createprimary'`, install the TPM tools:
 
 ```bash
 bash scripts/install_ubuntu_dependencies.sh
-source .venv/bin/activate
-python -c "import tpm2_pytss; print('tpm2-pytss import OK')"
-```
-
-On Kali, prefer the distro package if available:
-
-```bash
-sudo apt install -y python3-tpm2-pytss
-python3 -m venv --system-site-packages .venv
-source .venv/bin/activate
-python -c "import tpm2_pytss; print('tpm2-pytss import OK')"
 ```
 
 ### Wrong auth value

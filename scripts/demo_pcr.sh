@@ -5,7 +5,6 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 export TPM2TOOLS_TCTI="${TPM2TOOLS_TCTI:-swtpm:host=127.0.0.1,port=2321}"
-export TSS2_FAPICONF="${TSS2_FAPICONF:-$PROJECT_ROOT/.tpm-state/fapi-config.json}"
 INPUT_FILE="examples/sample.txt"
 ENCRYPTED_FILE="outputs/sample.txt.enc"
 DECRYPTED_FILE="outputs/sample.txt.dec"

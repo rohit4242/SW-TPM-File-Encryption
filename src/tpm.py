@@ -2,12 +2,14 @@ from dataclasses import dataclass
 from hashlib import sha256
 from os import environ
 from pathlib import Path
+import re
+import subprocess
+import tempfile
 
 from .errors import TpmError
-from .policies import auth_callback
 
 DEFAULT_TCTI = "swtpm:host=127.0.0.1,port=2321"
-DEFAULT_FAPI_BASE_PATH = "/HS/SRK/sw_tpm_file_encryption"
+DEFAULT_FAPI_BASE_PATH = "tpm2-tools/sealed-keys"
 
 
 @dataclass(frozen=True)
@@ -24,109 +26,110 @@ class TpmKeyStore:
         self.base_path = base_path.rstrip("/")
 
     def seal_key(self, key: bytes, auth: str, output_prefix: Path) -> SealedKeyInfo:
-        fapi = self._open_fapi()
         fapi_path = self._unique_fapi_path(output_prefix, key)
         public_blob_path = output_prefix.with_suffix(output_prefix.suffix + ".pub")
         private_blob_path = output_prefix.with_suffix(output_prefix.suffix + ".priv")
-        policy_blob_path = output_prefix.with_suffix(output_prefix.suffix + ".policy.json")
 
-        try:
-            self._provision_if_needed(fapi)
-            fapi.set_auth_callback(auth_callback, auth)
-            fapi.create_seal(fapi_path, data=key, auth_value=auth, exists_ok=False)
-            public_blob, private_blob, policy = fapi.get_tpm_blobs(fapi_path)
-            public_blob_path.write_bytes(public_blob.marshal())
-            private_blob_path.write_bytes(private_blob.marshal())
-            if policy:
-                policy_blob_path.write_text(str(policy), encoding="utf-8")
-            else:
-                policy_blob_path = None
-        except Exception as exc:
-            raise TpmError(f"Failed to seal AES key in SW-TPM: {exc}") from exc
-        finally:
-            self._close_fapi(fapi)
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            primary_context = temp_dir / "primary.ctx"
+            key_input = temp_dir / "aes.key"
+            key_input.write_bytes(key)
+
+            self._run(["tpm2_createprimary", "-Q", "-C", "o", "-G", "rsa", "-c", str(primary_context)])
+            self._run(
+                [
+                    "tpm2_create",
+                    "-Q",
+                    "-C",
+                    str(primary_context),
+                    "-u",
+                    str(public_blob_path),
+                    "-r",
+                    str(private_blob_path),
+                    "-i",
+                    str(key_input),
+                    "-p",
+                    auth,
+                ]
+            )
 
         return SealedKeyInfo(
             fapi_path=fapi_path,
             public_blob_path=public_blob_path,
             private_blob_path=private_blob_path,
-            policy_blob_path=policy_blob_path,
         )
 
     def unseal_key(self, fapi_path: str, auth: str) -> bytes:
-        fapi = self._open_fapi()
-        try:
-            fapi.set_auth_callback(auth_callback, auth)
-            return fapi.unseal(fapi_path)
-        except Exception as exc:
-            raise TpmError(f"Failed to unseal AES key from SW-TPM: {exc}") from exc
-        finally:
-            self._close_fapi(fapi)
+        public_blob_path, private_blob_path = self._paths_from_fapi_path(fapi_path)
+        if not public_blob_path.is_file() or not private_blob_path.is_file():
+            raise TpmError("TPM sealed object blobs are missing beside the encrypted file.")
+
+        with tempfile.TemporaryDirectory() as directory:
+            temp_dir = Path(directory)
+            primary_context = temp_dir / "primary.ctx"
+            sealed_context = temp_dir / "sealed.ctx"
+            unsealed_output = temp_dir / "aes.key"
+
+            self._run(["tpm2_createprimary", "-Q", "-C", "o", "-G", "rsa", "-c", str(primary_context)])
+            self._run(
+                [
+                    "tpm2_load",
+                    "-Q",
+                    "-C",
+                    str(primary_context),
+                    "-u",
+                    str(public_blob_path),
+                    "-r",
+                    str(private_blob_path),
+                    "-c",
+                    str(sealed_context),
+                ]
+            )
+            self._run(["tpm2_unseal", "-Q", "-c", str(sealed_context), "-p", auth, "-o", str(unsealed_output)])
+            return unsealed_output.read_bytes()
 
     def read_pcrs(self, pcrs: list[int]) -> dict[str, str]:
         """Read selected TPM PCR values as lowercase hexadecimal strings."""
-        fapi = self._open_fapi()
-        try:
-            values = {}
-            for pcr in pcrs:
-                pcr_value, _event_log = fapi.pcr_read(pcr)
-                values[str(pcr)] = bytes(pcr_value).hex()
-            return values
-        except Exception as exc:
-            raise TpmError(f"Failed to read PCR values from SW-TPM: {exc}") from exc
-        finally:
-            self._close_fapi(fapi)
+        values = {}
+        for pcr in pcrs:
+            result = self._run(["tpm2_pcrread", f"sha256:{pcr}"])
+            match = re.search(rf"\b{pcr}:\s*0x([0-9a-fA-F]+)", result.stdout)
+            if not match:
+                raise TpmError(f"Could not parse PCR {pcr} from tpm2_pcrread output.")
+            values[str(pcr)] = match.group(1).lower()
+        return values
 
     def extend_pcr(self, pcr: int, data: bytes) -> str:
         """Extend one PCR and return the new PCR value as hexadecimal text."""
-        fapi = self._open_fapi()
-        try:
-            pcr_value, _event_log = fapi.pcr_extend(pcr, data)
-            return bytes(pcr_value).hex()
-        except Exception as exc:
-            raise TpmError(f"Failed to extend PCR {pcr}: {exc}") from exc
-        finally:
-            self._close_fapi(fapi)
-
-    def _open_fapi(self):
-        try:
-            from tpm2_pytss import FAPI
-        except ModuleNotFoundError as exc:
-            raise TpmError(
-                "Missing Python package 'tpm2-pytss'. Install it on Ubuntu with "
-                "`python -m pip install -r requirements.txt` after installing TPM system libraries."
-            ) from exc
-
-        try:
-            if self.tcti == DEFAULT_TCTI:
-                return FAPI()
-            return FAPI(self.tcti)
-        except Exception as exc:
-            fapi_config = environ.get("TSS2_FAPICONF", "not set")
-            raise TpmError(
-                f"Could not connect to SW-TPM using TCTI '{self.tcti}'. "
-                f"TSS2_FAPICONF is {fapi_config}. "
-                "Start the emulator with scripts/start_swtpm.sh and export the variables it prints."
-            ) from exc
-
-    @staticmethod
-    def _provision_if_needed(fapi) -> None:
-        try:
-            fapi.provision(is_provisioned_ok=True)
-        except TypeError:
-            try:
-                fapi.provision()
-            except Exception:
-                pass
-
-    @staticmethod
-    def _close_fapi(fapi) -> None:
-        try:
-            fapi.close()
-        except Exception:
-            pass
+        digest = sha256(data).hexdigest()
+        self._run(["tpm2_pcrextend", f"{pcr}:sha256={digest}"])
+        return self.read_pcrs([pcr])[str(pcr)]
 
     def _unique_fapi_path(self, output_prefix: Path, key: bytes) -> str:
         digest = sha256(str(output_prefix.resolve()).encode("utf-8") + key).hexdigest()[:16]
         safe_name = "".join(ch if ch.isalnum() else "_" for ch in output_prefix.name)
-        return f"{self.base_path}/{safe_name}_{digest}"
+        public_blob_path = output_prefix.with_suffix(output_prefix.suffix + ".pub")
+        private_blob_path = output_prefix.with_suffix(output_prefix.suffix + ".priv")
+        return f"{self.base_path}:{public_blob_path}:{private_blob_path}:{safe_name}_{digest}"
+
+    def _paths_from_fapi_path(self, fapi_path: str) -> tuple[Path, Path]:
+        parts = fapi_path.split(":")
+        if len(parts) < 4 or parts[0] != self.base_path:
+            raise TpmError("Unsupported TPM key path in metadata.")
+        return Path(parts[1]), Path(parts[2])
+
+    def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+        env = environ.copy()
+        env["TPM2TOOLS_TCTI"] = self.tcti
+        try:
+            return subprocess.run(command, check=True, capture_output=True, text=True, env=env)
+        except FileNotFoundError as exc:
+            raise TpmError(
+                f"Missing command '{command[0]}'. Install TPM tools with scripts/install_ubuntu_dependencies.sh."
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            details = (exc.stderr or exc.stdout or "").strip()
+            if "authorization" in details.lower() or "auth" in details.lower():
+                raise TpmError("TPM authorization failed. Check the --auth value.") from exc
+            raise TpmError(f"TPM command failed: {' '.join(command)}\n{details}") from exc

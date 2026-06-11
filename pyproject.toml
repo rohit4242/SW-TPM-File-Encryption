@@ -9,7 +9,6 @@ description = "Course demo: encrypt files in Python and protect AES keys with SW
 requires-python = ">=3.10"
 dependencies = [
   "cryptography>=42.0.0",
-  "tpm2-pytss>=2.3.0",
 ]
 
 [tool.pytest.ini_options]
