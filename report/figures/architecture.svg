@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="440" viewBox="0 0 720 440" font-family="Helvetica, Arial, sans-serif" font-size="14">
+  <rect width="720" height="440" fill="#ffffff"/>
+
+  <!-- Python application -->
+  <rect x="40" y="30" width="300" height="150" rx="8" fill="#eef3fb" stroke="#33507a" stroke-width="1.5"/>
+  <text x="190" y="55" text-anchor="middle" font-weight="bold" fill="#33507a">Python application (src/)</text>
+  <rect x="60" y="70" width="260" height="28" rx="4" fill="#ffffff" stroke="#33507a"/>
+  <text x="190" y="89" text-anchor="middle">main.py &#8211; command line interface</text>
+  <rect x="60" y="105" width="260" height="28" rx="4" fill="#ffffff" stroke="#33507a"/>
+  <text x="190" y="124" text-anchor="middle">crypto.py &#8211; AES-256-GCM</text>
+  <rect x="60" y="140" width="260" height="28" rx="4" fill="#ffffff" stroke="#33507a"/>
+  <text x="190" y="159" text-anchor="middle">tpm.py &#8211; seal / unseal key</text>
+
+  <!-- Files -->
+  <rect x="420" y="30" width="260" height="150" rx="8" fill="#f6f1e7" stroke="#8a6d2f" stroke-width="1.5"/>
+  <text x="550" y="55" text-anchor="middle" font-weight="bold" fill="#8a6d2f">Files on disk (outputs/)</text>
+  <text x="440" y="85">file.enc &#8211; AES-GCM ciphertext</text>
+  <text x="440" y="110">file.enc.json &#8211; nonce, policy, PCRs</text>
+  <text x="440" y="135">file.enc.pub &#8211; sealed key (public)</text>
+  <text x="440" y="160">file.enc.priv &#8211; sealed key (private)</text>
+
+  <!-- Arrow app -> files -->
+  <line x1="340" y1="105" x2="412" y2="105" stroke="#555555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="376" y="95" text-anchor="middle" font-size="12" fill="#555555">read / write</text>
+
+  <!-- tpm2-pytss / tpm2-tss -->
+  <rect x="40" y="230" width="300" height="70" rx="8" fill="#eefaf0" stroke="#2f7a3f" stroke-width="1.5"/>
+  <text x="190" y="258" text-anchor="middle" font-weight="bold" fill="#2f7a3f">tpm2-pytss (ESAPI bindings)</text>
+  <text x="190" y="282" text-anchor="middle">tpm2-tss (TCG software stack)</text>
+
+  <!-- Arrow app -> pytss -->
+  <line x1="190" y1="180" x2="190" y2="222" stroke="#555555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="205" y="205" font-size="12" fill="#555555">ESAPI calls</text>
+
+  <!-- swtpm -->
+  <rect x="40" y="350" width="300" height="60" rx="8" fill="#fbeeee" stroke="#7a3333" stroke-width="1.5"/>
+  <text x="190" y="375" text-anchor="middle" font-weight="bold" fill="#7a3333">swtpm (TPM 2.0 emulator, libtpms)</text>
+  <text x="190" y="396" text-anchor="middle">state in .tpm-state/</text>
+
+  <!-- Arrow pytss -> swtpm -->
+  <line x1="190" y1="300" x2="190" y2="342" stroke="#555555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="205" y="325" font-size="12" fill="#555555">TCP socket 127.0.0.1:2321 (TCTI)</text>
+
+  <!-- Policies note -->
+  <rect x="420" y="290" width="260" height="120" rx="8" fill="#f2f2f2" stroke="#666666" stroke-width="1.5"/>
+  <text x="550" y="315" text-anchor="middle" font-weight="bold" fill="#444444">Policies enforced by the TPM</text>
+  <text x="440" y="345">password: userWithAuth</text>
+  <text x="440" y="370">PCR: PolicyPCR digest</text>
+  <text x="440" y="395">key released only if satisfied</text>
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#555555"/>
+    </marker>
+  </defs>
+</svg>

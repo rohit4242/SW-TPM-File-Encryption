@@ -1,42 +1,59 @@
 #!/usr/bin/env bash
+# End-to-end demo of both SW-TPM policies.
+#
+# Part 1 - password policy: encrypt, decrypt, and show that a wrong
+#          password is rejected by the TPM.
+# Part 2 - PCR policy: encrypt bound to PCR 16, decrypt, extend the PCR
+#          (simulated system change), and show that decryption now fails.
+#
+# Requires: SW-TPM running (scripts/start_tpm.sh) and the venv activated.
 set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$PROJECT_ROOT"
-
-export TPM2TOOLS_TCTI="${TPM2TOOLS_TCTI:-swtpm:host=127.0.0.1,port=2321}"
-AUTH_VALUE="demo-password"
-INPUT_FILE="examples/sample.txt"
-ENCRYPTED_FILE="outputs/sample.txt.enc"
-DECRYPTED_FILE="outputs/sample.txt.dec"
-
-if [[ "${1:-}" == "--clean" ]]; then
-  rm -f outputs/sample.txt.enc outputs/sample.txt.enc.json outputs/sample.txt.enc.pub outputs/sample.txt.enc.priv outputs/sample.txt.dec outputs/wrong.dec
-fi
-
+INPUT="examples/sample.txt"
 mkdir -p outputs
+rm -f outputs/sample.txt.* outputs/pcr-demo.*
 
-echo "Checking TPM..."
-tpm2_getrandom 8 --hex
-
-echo
-echo "Encrypting sample file..."
-python -m src.main encrypt "$INPUT_FILE" --policy password --auth "$AUTH_VALUE" --output "$ENCRYPTED_FILE"
-
-echo
-echo "Decrypting with correct auth..."
-python -m src.main decrypt "$ENCRYPTED_FILE" --auth "$AUTH_VALUE" --output "$DECRYPTED_FILE"
+echo "============================================"
+echo " Part 1: password policy"
+echo "============================================"
+python -m src.main encrypt "$INPUT" --policy password --auth demo-password
 
 echo
-echo "Comparing original and decrypted files..."
-cmp "$INPUT_FILE" "$DECRYPTED_FILE"
-echo "Files match."
+echo "-- Decrypting with the correct password..."
+python -m src.main decrypt outputs/sample.txt.enc --auth demo-password
+cmp "$INPUT" outputs/sample.txt.dec
+echo "-- Original and decrypted files match."
 
 echo
-echo "Trying wrong auth. This should fail:"
-if python -m src.main decrypt "$ENCRYPTED_FILE" --auth wrong-password --output outputs/wrong.dec; then
-  echo "Unexpected success with wrong auth."
-  exit 1
-else
-  echo "Wrong auth failed as expected."
+echo "-- Decrypting with a WRONG password (must fail)..."
+if python -m src.main decrypt outputs/sample.txt.enc --auth wrong-password; then
+  echo "ERROR: wrong password was accepted!" && exit 1
 fi
+echo "-- Wrong password was rejected by the TPM, as expected."
+
+echo
+echo "============================================"
+echo " Part 2: PCR policy (PCR 16)"
+echo "============================================"
+python -m src.main encrypt "$INPUT" --policy pcr --pcrs 16 --output outputs/pcr-demo.enc
+
+echo
+echo "-- Decrypting while the PCR is unchanged..."
+python -m src.main decrypt outputs/pcr-demo.enc
+cmp "$INPUT" outputs/pcr-demo.dec
+echo "-- Original and decrypted files match."
+
+echo
+echo "-- Extending PCR 16 to simulate a system change..."
+python -m src.main extend-pcr 16 --data changed-system-state
+
+echo
+echo "-- Decrypting after the PCR change (must fail)..."
+if python -m src.main decrypt outputs/pcr-demo.enc; then
+  echo "ERROR: decryption succeeded after PCR change!" && exit 1
+fi
+echo "-- Unsealing was blocked by the TPM, as expected."
+
+echo
+echo "Demo finished successfully."
